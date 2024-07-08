@@ -1,20 +1,25 @@
+"""
+NOTE: If the below functions are deployed with Flex consumption plan, CORS is not supported currently.
+NOTE: After deployment if you get no response on request, the API keys isn't set in the environment variables
+"""
+
 import azure.functions as func
 import os
 import logging
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
+from json import dumps
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 @app.route(route="ai-sentiment", auth_level=func.AuthLevel.ANONYMOUS)
 def ai_sentiment(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
-        # Initialize Text Analytics client
+    
+    # Initialize Text Analytics client
     endpoint = os.environ["AZURE_LANGUAGE_ENDPOINT"]
     key = os.environ["AZURE_LANGUAGE_KEY"]
-    print('ENDPOINT:', endpoint)
     text_analytics_client = TextAnalyticsClient(endpoint=endpoint, credential=AzureKeyCredential(key))
-    print(type(text_analytics_client))
     # Parse JSON body
     try:
         req_body = req.get_json()
@@ -26,24 +31,18 @@ def ai_sentiment(req: func.HttpRequest) -> func.HttpResponse:
     
     payload = list()
     for item in req_body:
-        comments = item.pop("comments")
-        results = text_analytics_client.analyze_sentiment(comments["data"])
-        
-        processed_results = []
-        for result in results:
-            processed_results.append({
-                'comment': result.sentences[0].text,
-                'sentiment': result.sentiment,
-                "scores": list(result.confidence_scores.items())
-            }
-            )
+        if "media_url" in item: _ = item.pop("media_url")
+        results = text_analytics_client.analyze_sentiment(item["comments"]["data"])
+        for i, result in enumerate(results):
+            item["comments"]["data"][i]["sentiment"] = result.sentiment
+            item["comments"]["data"][i]["scores"] = result.confidence_scores.items()
+            
         payload.append({
             **item,
-            "comments":processed_results
         })
-        
+    
 
-    return func.HttpResponse(f"{payload}", mimetype="application/json", status_code=200)
+    return func.HttpResponse(f"{dumps(payload, indent=4)}", mimetype="application/json", status_code=200)
 
 @app.route(route="http_trigger", auth_level=func.AuthLevel.FUNCTION)
 def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
